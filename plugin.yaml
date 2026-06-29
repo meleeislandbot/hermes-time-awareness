@@ -1,0 +1,4 @@
+name: hermes-time-awareness
+version: 0.1.0
+description: API-only temporal awareness for Hermes user messages via llm_request middleware
+provides_hooks: []

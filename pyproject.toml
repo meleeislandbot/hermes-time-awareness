@@ -1,0 +1,27 @@
+[project]
+name = "hermes-time-awareness"
+version = "0.1.0"
+description = "API-only temporal awareness plugin for Hermes Agent user messages"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Hermes Agent contributors" }]
+keywords = ["hermes-agent", "plugin", "llm", "time", "middleware"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["test_time_awareness.py"]
+addopts = "-q"
