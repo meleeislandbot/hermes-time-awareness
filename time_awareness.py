@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import os
 import re
-import sqlite3
 import time
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Iterable, Optional
 
 try:  # Python 3.9+
@@ -48,7 +46,6 @@ class TimeAwarenessConfig:
     exclude_cron: bool = True
     exclude_kanban: bool = True
     exclude_subagents: bool = False  # best-effort placeholder; see README
-    use_session_db: bool = True
     prefix_key: str = "time"
     source: str = PLUGIN_ID
 
@@ -67,17 +64,13 @@ def rewrite_llm_request(*, request: dict[str, Any], **context: Any) -> Optional[
     changed = False
     now_epoch = time.time()
 
-    session_id = str(context.get("session_id") or "").strip()
-
     for key in ("messages", "input"):
         value = new_request.get(key)
         if isinstance(value, list):
-            session_epochs = _session_epochs_for_messages(value, session_id) if cfg.use_session_db else {}
             did_change = _rewrite_message_list(
                 value,
                 cfg=cfg,
                 now_epoch=now_epoch,
-                session_epochs=session_epochs,
             )
             changed = changed or did_change
 
@@ -103,7 +96,6 @@ def load_config() -> TimeAwarenessConfig:
           exclude_platforms: [cron]
           exclude_cron: true
           exclude_kanban: true
-          use_session_db: true
     """
     data: dict[str, Any] = {}
     try:
@@ -135,14 +127,13 @@ def load_config() -> TimeAwarenessConfig:
         exclude_cron=_bool(data.get("exclude_cron"), True),
         exclude_kanban=_bool(data.get("exclude_kanban"), True),
         exclude_subagents=_bool(data.get("exclude_subagents"), False),
-        use_session_db=_bool(data.get("use_session_db"), True),
         prefix_key=str(data.get("prefix_key") or "time"),
         source=str(data.get("source") or PLUGIN_ID),
     )
 
 
 def _rewrite_message_list(
-    messages: list[Any], *, cfg: TimeAwarenessConfig, now_epoch: float, session_epochs: dict[int, float]
+    messages: list[Any], *, cfg: TimeAwarenessConfig, now_epoch: float
 ) -> bool:
     user_indexes = [
         idx for idx, msg in enumerate(messages)
@@ -174,8 +165,6 @@ def _rewrite_message_list(
         if epoch is None:
             epoch = embedded_epoch
         if epoch is None:
-            epoch = session_epochs.get(idx)
-        if epoch is None:
             if idx == last_user_idx and cfg.stamp_missing_current:
                 epoch = now_epoch
             elif idx != last_user_idx and cfg.stamp_missing_historical:
@@ -190,106 +179,6 @@ def _rewrite_message_list(
             changed = True
 
     return changed
-
-
-def _session_epochs_for_messages(messages: list[Any], session_id: str) -> dict[int, float]:
-    """Best-effort recovery of persisted user timestamps for API-only history.
-
-    Hermes does not currently include ``timestamp`` fields in every provider-bound
-    historical message.  The middleware context does include ``session_id``, so a
-    directory plugin can recover timestamps from the local state DB without
-    persisting prefixes into transcripts.
-    """
-    if not session_id:
-        return {}
-    db_rows = _load_session_user_rows(session_id)
-    if not db_rows:
-        return {}
-
-    result: dict[int, float] = {}
-    search_from = 0
-    for idx, msg in enumerate(messages):
-        if not isinstance(msg, dict) or msg.get("role") != "user":
-            continue
-        needle = _normalize_for_match(_message_text_for_match(msg.get("content")))
-        if not needle:
-            continue
-        for pos in range(search_from, len(db_rows)):
-            haystack, epoch = db_rows[pos]
-            if haystack == needle:
-                result[idx] = epoch
-                search_from = pos + 1
-                break
-    return result
-
-
-def _load_session_user_rows(session_id: str) -> list[tuple[str, float]]:
-    db_path = _state_db_path()
-    if not db_path.exists():
-        return []
-
-    queries = [
-        "SELECT content, timestamp FROM messages "
-        "WHERE session_id = ? AND role = 'user' AND active = 1 "
-        "ORDER BY id",
-        "SELECT content, timestamp FROM messages "
-        "WHERE session_id = ? AND role = 'user' "
-        "ORDER BY id",
-    ]
-    try:
-        with sqlite3.connect(str(db_path)) as conn:
-            rows = None
-            for query in queries:
-                try:
-                    rows = conn.execute(query, (session_id,)).fetchall()
-                    break
-                except sqlite3.OperationalError:
-                    continue
-            if not rows:
-                return []
-    except Exception:
-        return []
-
-    out: list[tuple[str, float]] = []
-    for content, timestamp in rows:
-        text = _normalize_for_match(_message_text_for_match(content))
-        if not text:
-            continue
-        try:
-            out.append((text, float(timestamp)))
-        except (TypeError, ValueError):
-            continue
-    return out
-
-
-def _state_db_path() -> Path:
-    try:
-        from hermes_constants import get_hermes_home
-
-        return Path(get_hermes_home()) / "state.db"
-    except Exception:
-        home = os.getenv("HERMES_HOME")
-        return Path(home).expanduser() / "state.db" if home else Path.home() / ".hermes" / "state.db"
-
-
-def _message_text_for_match(content: Any) -> str:
-    clean, _ = _strip_known_time_prefixes(content)
-    if isinstance(clean, str):
-        return clean
-    if isinstance(clean, list):
-        parts: list[str] = []
-        for part in clean:
-            if not isinstance(part, dict):
-                continue
-            value = part.get("text") if isinstance(part.get("text"), str) else part.get("content")
-            if isinstance(value, str):
-                parts.append(value)
-        return "\n".join(parts)
-    return ""
-
-
-def _normalize_for_match(text: str) -> str:
-    return " ".join(text.split())
 
 
 def _prefix_content(msg: dict[str, Any], epoch: float, *, cfg: TimeAwarenessConfig) -> bool:

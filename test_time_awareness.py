@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -47,43 +46,6 @@ def test_prefixes_user_messages_with_stored_timestamp_and_strips_metadata():
     # API-only: original request object was not mutated.
     assert request["messages"][1]["content"] == "Hola"
     assert "timestamp" in request["messages"][1]
-
-
-def test_recovers_historical_timestamps_from_session_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "state.db"
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "CREATE TABLE messages ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "session_id TEXT, role TEXT, content TEXT, timestamp REAL, active INTEGER DEFAULT 1)"
-        )
-        conn.execute(
-            "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-            ("session-1", "user", "Hola", _epoch(2026, 6, 29, 8, 57, 23)),
-        )
-        conn.execute(
-            "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-            ("session-1", "assistant", "Hola. ¿Qué necesitas?", _epoch(2026, 6, 29, 8, 57, 27)),
-        )
-        conn.execute(
-            "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-            ("session-1", "user", "a que hora te escribí el primer mensaje?", _epoch(2026, 6, 29, 8, 59, 17)),
-        )
-    monkeypatch.setattr(twa, "_state_db_path", lambda: db_path)
-
-    request = {
-        "messages": [
-            {"role": "user", "content": "Hola"},
-            {"role": "assistant", "content": "Hola. ¿Qué necesitas?"},
-            {"role": "user", "content": "a que hora te escribí el primer mensaje?"},
-        ]
-    }
-
-    result = twa.rewrite_llm_request(request=request, platform="cli", session_id="session-1")
-
-    messages = result["request"]["messages"]
-    assert messages[0]["content"] == "[time: 2026-06-29T08:57:23+02:00] Hola"
-    assert messages[2]["content"] == "[time: 2026-06-29T08:59:17+02:00] a que hora te escribí el primer mensaje?"
 
 
 def test_stamps_only_current_missing_timestamp_by_default(monkeypatch):

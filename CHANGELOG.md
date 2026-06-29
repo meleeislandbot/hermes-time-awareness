@@ -1,9 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- Recover historical user-message timestamps from Hermes `state.db` via middleware `session_id`, keeping the plugin API-only while allowing multi-turn questions such as “what time did I send the first message?”.
-
 ## 0.1.0 - 2026-06-29
 
 Initial release.

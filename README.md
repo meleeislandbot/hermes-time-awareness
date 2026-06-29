@@ -97,7 +97,6 @@ plugins:
       exclude_platforms: [cron]
       exclude_cron: true
       exclude_kanban: true
-      use_session_db: true
 ```
 
 ### Options
@@ -113,7 +112,6 @@ plugins:
 | `exclude_platforms` | `[cron]` | Platform names to skip. |
 | `exclude_cron` | `true` | Skip cron contexts, including `HERMES_CRON_SESSION=1`. |
 | `exclude_kanban` | `true` | Skip Kanban worker contexts, including `HERMES_KANBAN_TASK=1`. |
-| `use_session_db` | `true` | Recover timestamps for historical user messages from Hermes' local `state.db` when middleware context includes `session_id`. Keeps prefixes API-only while making multi-turn time questions work. |
 | `prefix_key` | `time` | Prefix key, normally producing `[time: ...]`. |
 
 ## Supported request shapes
@@ -170,9 +168,9 @@ when replacing them with the standard ISO form.
 
 ## Limitations
 
-The plugin keeps prefixes API-only. For historical user messages whose provider payload no longer contains a `timestamp` field, it now uses the `session_id` passed to `llm_request` middleware to recover matching user-message timestamps from Hermes' local `state.db`. This is still transcript-clean, but it is best-effort: if a provider path omits `session_id`, if history was compressed/rewritten, or if message text no longer matches the stored user message, the plugin cannot recover that historical timestamp and falls back to the current-turn behavior.
+The plugin keeps prefixes API-only. For historical user messages whose provider payload no longer contains a `timestamp` field or an existing `[time: ...]` prefix, the plugin cannot recover that historical timestamp without coupling itself to Hermes internals. It falls back to the current-turn behavior instead.
 
-If Hermes later exposes original message timestamp metadata directly to `llm_request` middleware before provider-specific sanitization, this plugin should prefer that over DB matching.
+If Hermes later exposes original message timestamp metadata directly to `llm_request` middleware before provider-specific sanitization, this plugin should prefer that metadata.
 
 Subagent exclusion is currently best-effort because there is no stable public subagent marker in the `llm_request` middleware context.
 
